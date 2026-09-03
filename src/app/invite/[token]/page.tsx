@@ -32,7 +32,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
             Sube tus documentos para continuar el proceso de selección.
           </p>
         </div>
-        <CandidateInviteForm candidate={candidate} token={params.token} />
+        <CandidateInviteForm candidate={candidate} token={token} />
       </div>
     </div>
   )
