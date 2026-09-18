@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Upload, CheckCircle, X, FileText } from 'lucide-react'
+import { Upload, CheckCircle, Clock, X, FileText, AlertCircle } from 'lucide-react'
 
 const REQUIRED_DOCS = [
   { key: 'curriculum', label: 'Currículum Vitae', desc: 'PDF o Word, máximo 5MB' },
@@ -11,35 +11,68 @@ const REQUIRED_DOCS = [
   { key: 'certificado_estudios', label: 'Certificado de estudios', desc: 'Título o certificado de egreso (si aplica)', required: false },
 ]
 
-type DocStatus = 'idle' | 'uploading' | 'done' | 'error'
+type UploadStatus = 'idle' | 'uploading' | 'done' | 'error'
 
-export default function CandidateInviteForm({ candidate, token }: { candidate: any; token: string }) {
-  const [docStatus, setDocStatus] = useState<Record<string, DocStatus>>({})
-  const [docNames, setDocNames] = useState<Record<string, string>>({})
+type ExistingDoc = {
+  id: string
+  document_type: string
+  file_name: string
+  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  rejection_reason: string | null
+}
+
+export default function CandidateInviteForm({
+  candidate,
+  token,
+  existingDocs,
+}: {
+  candidate: any
+  token: string
+  existingDocs: ExistingDoc[]
+}) {
+  const existingByType = Object.fromEntries(existingDocs.map(d => [d.document_type, d]))
+
+  const [uploadStatus, setUploadStatus] = useState<Record<string, UploadStatus>>({})
+  const [uploadedNames, setUploadedNames] = useState<Record<string, string>>({})
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const supabase = createClient()
 
   async function handleFileUpload(docKey: string, file: File) {
-    setDocStatus(s => ({ ...s, [docKey]: 'uploading' }))
+    setUploadStatus(s => ({ ...s, [docKey]: 'uploading' }))
     const ext = file.name.split('.').pop()
     const path = `${candidate.id}/${docKey}_${Date.now()}.${ext}`
 
-    const { error } = await supabase.storage.from('documents').upload(path, file, { upsert: true })
-    if (error) { setDocStatus(s => ({ ...s, [docKey]: 'error' })); return }
+    const { error: storageErr } = await supabase.storage.from('documents').upload(path, file, { upsert: true })
+    if (storageErr) { setUploadStatus(s => ({ ...s, [docKey]: 'error' })); return }
 
-    const { error: dbErr } = await supabase.from('documents').insert({
-      candidate_id: candidate.id,
-      document_type: docKey,
-      file_name: file.name,
-      file_path: path,
-      file_size: file.size,
-      status: 'PENDING',
-    })
+    const existing = existingByType[docKey]
+    if (existing) {
+      const { error } = await supabase.from('documents').update({
+        file_name: file.name,
+        file_path: path,
+        file_size: file.size,
+        status: 'PENDING',
+        rejection_reason: null,
+        reviewed_by: null,
+        reviewed_at: null,
+      }).eq('id', existing.id)
+      if (error) { setUploadStatus(s => ({ ...s, [docKey]: 'error' })); return }
+      existingByType[docKey] = { ...existing, file_name: file.name, status: 'PENDING', rejection_reason: null }
+    } else {
+      const { error } = await supabase.from('documents').insert({
+        candidate_id: candidate.id,
+        document_type: docKey,
+        file_name: file.name,
+        file_path: path,
+        file_size: file.size,
+        status: 'PENDING',
+      })
+      if (error) { setUploadStatus(s => ({ ...s, [docKey]: 'error' })); return }
+    }
 
-    if (dbErr) { setDocStatus(s => ({ ...s, [docKey]: 'error' })); return }
-    setDocStatus(s => ({ ...s, [docKey]: 'done' }))
-    setDocNames(n => ({ ...n, [docKey]: file.name }))
+    setUploadStatus(s => ({ ...s, [docKey]: 'done' }))
+    setUploadedNames(n => ({ ...n, [docKey]: file.name }))
   }
 
   async function handleSubmit() {
@@ -48,8 +81,16 @@ export default function CandidateInviteForm({ candidate, token }: { candidate: a
     setSubmitted(true)
   }
 
+  const hasRejected = existingDocs.some(d => d.status === 'REJECTED')
   const mandatoryDocs = REQUIRED_DOCS.filter(d => d.required !== false)
-  const allMandatoryUploaded = mandatoryDocs.every(d => docStatus[d.key] === 'done')
+
+  function isDocReady(docKey: string) {
+    if (uploadStatus[docKey] === 'done') return true
+    const ex = existingByType[docKey]
+    return ex && ex.status !== 'REJECTED'
+  }
+
+  const allMandatoryReady = mandatoryDocs.every(d => isDocReady(d.key))
 
   if (submitted) return (
     <div className="bg-white rounded-2xl border border-gray-100 p-10 text-center">
@@ -61,34 +102,63 @@ export default function CandidateInviteForm({ candidate, token }: { candidate: a
 
   return (
     <div className="space-y-4">
+      {hasRejected && (
+        <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-700">
+          Algunos documentos fueron rechazados. Por favor vuelve a subirlos.
+        </div>
+      )}
+
       {REQUIRED_DOCS.map(doc => {
-        const status = docStatus[doc.key] || 'idle'
+        const uploadSt = uploadStatus[doc.key]
+        const existing = existingByType[doc.key]
+
+        let borderColor = 'border-gray-100'
+        let bgColor = ''
+        if (uploadSt === 'done' || (existing && existing.status === 'APPROVED')) {
+          borderColor = 'border-green-200'; bgColor = 'bg-green-50'
+        } else if (existing?.status === 'REJECTED') {
+          borderColor = 'border-red-200'; bgColor = 'bg-red-50'
+        } else if (existing?.status === 'PENDING') {
+          borderColor = 'border-yellow-200'; bgColor = 'bg-yellow-50'
+        }
+
+        const showFileName = uploadSt === 'done'
+          ? uploadedNames[doc.key]
+          : existing?.file_name
+
         return (
-          <div key={doc.key} className={`bg-white rounded-2xl border p-5 transition-colors ${
-            status === 'done' ? 'border-green-200 bg-green-50' :
-            status === 'error' ? 'border-red-200' : 'border-gray-100'
-          }`}>
-            <div className="flex items-start justify-between">
-              <div className="flex items-start gap-3">
-                <FileText size={20} className={status === 'done' ? 'text-green-500 mt-0.5' : 'text-gray-400 mt-0.5'} />
-                <div>
+          <div key={doc.key} className={`bg-white rounded-2xl border p-5 transition-colors ${borderColor} ${bgColor}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                <FileText size={20} className="text-gray-400 mt-0.5 shrink-0" />
+                <div className="min-w-0">
                   <p className="font-medium text-gray-900 text-sm">
                     {doc.label}
                     {doc.required === false && <span className="ml-2 text-xs text-gray-400">(opcional)</span>}
                   </p>
                   <p className="text-xs text-gray-400 mt-0.5">{doc.desc}</p>
-                  {status === 'done' && <p className="text-xs text-green-600 mt-1">{docNames[doc.key]}</p>}
-                  {status === 'error' && <p className="text-xs text-red-500 mt-1">Error al subir. Intenta de nuevo.</p>}
+                  {showFileName && <p className="text-xs text-gray-500 mt-1 truncate">{showFileName}</p>}
+                  {existing?.status === 'REJECTED' && existing.rejection_reason && (
+                    <p className="text-xs text-red-600 mt-1">Rechazado: {existing.rejection_reason}</p>
+                  )}
+                  {uploadSt === 'error' && <p className="text-xs text-red-500 mt-1">Error al subir. Intenta de nuevo.</p>}
                 </div>
               </div>
-              <div>
-                {status === 'done' ? (
-                  <CheckCircle size={20} className="text-green-500" />
-                ) : status === 'uploading' ? (
+
+              <div className="shrink-0">
+                {uploadSt === 'uploading' ? (
                   <span className="text-xs text-blue-500 animate-pulse">Subiendo...</span>
+                ) : uploadSt === 'done' || existing?.status === 'APPROVED' ? (
+                  <CheckCircle size={20} className="text-green-500" />
+                ) : existing?.status === 'PENDING' ? (
+                  <div className="flex items-center gap-1.5">
+                    <Clock size={16} className="text-yellow-500" />
+                    <span className="text-xs text-yellow-600">En revisión</span>
+                  </div>
                 ) : (
                   <label className="cursor-pointer flex items-center gap-1.5 bg-blue-700 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-blue-800">
-                    <Upload size={13} /> Subir
+                    <Upload size={13} />
+                    {existing?.status === 'REJECTED' ? 'Volver a subir' : 'Subir'}
                     <input type="file" className="hidden" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
                       onChange={e => { if (e.target.files?.[0]) handleFileUpload(doc.key, e.target.files[0]) }} />
                   </label>
@@ -99,15 +169,17 @@ export default function CandidateInviteForm({ candidate, token }: { candidate: a
         )
       })}
 
-      <div className="pt-2">
-        <button onClick={handleSubmit} disabled={!allMandatoryUploaded || submitting}
-          className="w-full bg-blue-700 text-white py-3 rounded-xl font-medium hover:bg-blue-800 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity">
-          {submitting ? 'Enviando...' : 'Enviar documentos'}
-        </button>
-        {!allMandatoryUploaded && (
-          <p className="text-xs text-gray-400 text-center mt-2">Sube los documentos obligatorios para continuar</p>
-        )}
-      </div>
+      {(hasRejected || existingDocs.length === 0) && (
+        <div className="pt-2">
+          <button onClick={handleSubmit} disabled={!allMandatoryReady || submitting}
+            className="w-full bg-blue-700 text-white py-3 rounded-xl font-medium hover:bg-blue-800 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity">
+            {submitting ? 'Enviando...' : hasRejected ? 'Reenviar documentos' : 'Enviar documentos'}
+          </button>
+          {!allMandatoryReady && (
+            <p className="text-xs text-gray-400 text-center mt-2">Sube los documentos obligatorios para continuar</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

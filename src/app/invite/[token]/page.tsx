@@ -17,6 +17,11 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
 
   if (!candidate) notFound()
 
+  const { data: existingDocs } = await supabase
+    .from('documents')
+    .select('id, document_type, file_name, status, rejection_reason')
+    .eq('candidate_id', candidate.id)
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-2xl mx-auto px-4 py-12">
@@ -32,7 +37,7 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
             Sube tus documentos para continuar el proceso de selección.
           </p>
         </div>
-        <CandidateInviteForm candidate={candidate} token={token} />
+        <CandidateInviteForm candidate={candidate} token={token} existingDocs={existingDocs ?? []} />
       </div>
     </div>
   )
