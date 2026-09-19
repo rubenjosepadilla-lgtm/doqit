@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createClient as createServiceClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 import { createHash } from 'crypto'
 import { Resend } from 'resend'
+
+export const dynamic = 'force-dynamic'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -10,13 +13,26 @@ function sha256(text: string) {
   return createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex')
 }
 
-// Remove characters outside Latin-1 range for email subjects/headers
 function toSafeHeader(text: string) {
   return text.replace(/[^\x00-\xFF]/g, '?')
 }
 
+async function createServiceClient() {
+  const cookieStore = await cookies()
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    {
+      cookies: {
+        getAll() { return cookieStore.getAll() },
+        setAll() {},
+      },
+    }
+  )
+}
+
 async function appendEvent(
-  serviceClient: any,
+  service: any,
   documentId: string,
   eventType: string,
   actor: string,
@@ -26,7 +42,7 @@ async function appendEvent(
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
   const hash = sha256(`${id}${eventType}${JSON.stringify(eventData)}${prevHash ?? ''}${now}`)
-  await serviceClient.from('fes_events').insert({
+  await service.from('fes_events').insert({
     id, document_id: documentId, event_type: eventType,
     actor, event_data: eventData, prev_event_hash: prevHash, event_hash: hash, created_at: now,
   })
@@ -44,10 +60,8 @@ export async function POST(req: Request) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const service = createServiceClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    )
+    step = 'create_service'
+    const service = await createServiceClient()
 
     step = 'load_doc'
     const { data: doc, error: docError } = await service
@@ -107,11 +121,6 @@ export async function POST(req: Request) {
       `<p><a href="${signingUrl}" style="background:#1d4ed8;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin-top:8px;">Revisar y firmar documento</a></p>`,
       `<p style="color:#9ca3af;font-size:12px;margin-top:24px;">Doqit - Firma Electronica Simple (Ley 19.799)</p>`,
     ].join('\n')
-
-    console.log('[FES send] to:', safeEmail, 'subject len:', emailSubject.length)
-    // Log char codes for subject and first 20 chars of html to catch non-latin1
-    const allChars = (emailSubject + emailHtml).split('').map((c, i) => ({ i, v: c.charCodeAt(0) })).filter(x => x.v > 255)
-    if (allChars.length) console.warn('[FES send] non-latin1 chars found:', allChars.slice(0, 5))
 
     step = 'send_email'
     const { data: emailData, error: emailError } = await resend.emails.send({

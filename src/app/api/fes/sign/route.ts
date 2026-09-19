@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 import { createHash } from 'crypto'
 import { Resend } from 'resend'
 import { generateSignedPdf } from '@/lib/fes/generatePdf'
 import { stampWithFreeTsa } from '@/lib/fes/tsa'
+
+export const dynamic = 'force-dynamic'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
@@ -29,14 +32,19 @@ async function appendEvent(
   return hash
 }
 
-const service = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
+async function getService() {
+  const cookieStore = await cookies()
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { cookies: { getAll() { return cookieStore.getAll() }, setAll() {} } }
+  )
+}
 
 export async function POST(req: Request) {
   const { token, ip, userAgent } = await req.json()
 
+  const service = await getService()
   const { data: doc } = await service
     .from('fes_documents')
     .select('*, candidates(full_name, email), recruiters(email)')
