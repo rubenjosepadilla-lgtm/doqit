@@ -48,14 +48,18 @@ export async function POST(req: Request) {
   )
 
   // Load document
-  const { data: doc } = await service
+  const { data: doc, error: docError } = await service
     .from('fes_documents')
     .select('*, candidates(full_name, email), fes_clauses(version, content_text)')
     .eq('id', documentId)
     .eq('recruiter_id', user.id)
     .single()
 
-  if (!doc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (docError) {
+    console.error('[FES send] doc query error:', docError)
+    return NextResponse.json({ error: docError.message }, { status: 500 })
+  }
+  if (!doc) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 })
   if (doc.status !== 'DRAFT') return NextResponse.json({ error: 'Already sent' }, { status: 400 })
 
   // Get active clause
@@ -87,8 +91,10 @@ export async function POST(req: Request) {
   const candidate = doc.candidates as any
   const signingUrl = `${process.env.NEXT_PUBLIC_APP_URL}/fes/${doc.invite_token}`
 
+  console.log('[FES send] sending email to', candidate?.email, 'signingUrl:', signingUrl)
+
   // Email candidate
-  await resend.emails.send({
+  const emailResult = await resend.emails.send({
     from: 'Doqit <onboarding@resend.dev>',
     to: candidate.email,
     subject: `Tienes un documento para firmar: ${doc.title}`,
@@ -106,5 +112,10 @@ export async function POST(req: Request) {
     `,
   })
 
-  return NextResponse.json({ ok: true, contentHash })
+  if (emailResult.error) {
+    console.error('[FES send] email error:', emailResult.error)
+    return NextResponse.json({ error: `Email no enviado: ${emailResult.error.message}` }, { status: 500 })
+  }
+
+  return NextResponse.json({ ok: true, contentHash, signingUrl })
 }

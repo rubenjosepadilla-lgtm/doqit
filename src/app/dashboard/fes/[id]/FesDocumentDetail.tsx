@@ -32,12 +32,22 @@ export default function FesDocumentDetail({ doc, events, signature }: { doc: any
 
   async function handleSend() {
     setSending(true)
-    const res = await fetch('/api/fes/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ documentId: doc.id }),
-    })
-    if (res.ok) { setSent(true); router.refresh() }
+    try {
+      const res = await fetch('/api/fes/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ documentId: doc.id }),
+      })
+      if (res.ok) {
+        setSent(true)
+        router.refresh()
+      } else {
+        const body = await res.json().catch(() => ({}))
+        alert(`Error al enviar: ${body.error ?? res.statusText}`)
+      }
+    } catch (e: any) {
+      alert(`Error de red: ${e.message}`)
+    }
     setSending(false)
   }
 
