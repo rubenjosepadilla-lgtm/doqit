@@ -20,6 +20,11 @@ export default function FesSigningPortal({ doc, token }: { doc: any; token: stri
   useEffect(() => {
     const el = contentRef.current
     if (!el) return
+    // If content fits without scrolling, mark as read immediately
+    if (el.scrollHeight <= el.clientHeight + 40) {
+      setScrolledToEnd(true)
+      return
+    }
     const handler = () => {
       if (el.scrollTop + el.clientHeight >= el.scrollHeight - 40) {
         setScrolledToEnd(true)
