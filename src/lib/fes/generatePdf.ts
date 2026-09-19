@@ -1,4 +1,4 @@
-import { PDFDocument, StandardFonts, rgb, PDFPage } from 'pdf-lib'
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 
 function wrapText(text: string, maxChars: number): string[] {
   const words = text.split(' ')

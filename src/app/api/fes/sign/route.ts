@@ -8,7 +8,7 @@ import { stampWithFreeTsa } from '@/lib/fes/tsa'
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 function sha256(text: string) {
-  return createHash('sha256').update(text, 'utf8').digest('hex')
+  return createHash('sha256').update(Buffer.from(text, 'utf8')).digest('hex')
 }
 
 async function appendEvent(
