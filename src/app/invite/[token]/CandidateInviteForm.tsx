@@ -78,6 +78,30 @@ export default function CandidateInviteForm({
   async function handleSubmit() {
     setSubmitting(true)
     await supabase.from('candidates').update({ status: 'PENDING_DOCS' }).eq('id', candidate.id)
+
+    const { data: recruiter } = await supabase
+      .from('recruiters')
+      .select('email')
+      .eq('id', candidate.recruiter_id)
+      .single()
+
+    if (recruiter?.email) {
+      fetch('/api/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'docs_submitted',
+          to: recruiter.email,
+          data: {
+            candidateName: candidate.full_name,
+            candidateEmail: candidate.email,
+            candidateId: candidate.id,
+            position: (candidate.positions as any)?.title ?? 'Sin posición',
+          },
+        }),
+      })
+    }
+
     setSubmitted(true)
   }
 

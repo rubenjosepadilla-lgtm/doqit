@@ -9,7 +9,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
 
   const { data: candidate } = await supabase
     .from('candidates')
-    .select('*, positions(title)')
+    .select('*, positions(title), recruiters(email)')
     .eq('id', id)
     .eq('recruiter_id', user!.id)
     .single()
@@ -50,7 +50,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
           <p>El candidato aún no ha subido documentos.</p>
         </div>
       ) : (
-        <DocumentReview documents={documents} candidateId={id} />
+        <DocumentReview documents={documents} candidateId={id} candidate={candidate} />
       )}
     </div>
   )

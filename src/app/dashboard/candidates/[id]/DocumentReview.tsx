@@ -12,7 +12,15 @@ const DOC_LABELS: Record<string, string> = {
   certificado_estudios: 'Certificado de estudios',
 }
 
-export default function DocumentReview({ documents, candidateId }: { documents: any[]; candidateId: string }) {
+const DOC_LABELS_ES: Record<string, string> = {
+  curriculum: 'Currículum Vitae',
+  cedula_frontal: 'Cédula (frontal)',
+  cedula_trasera: 'Cédula (trasera)',
+  certificado_afp: 'Certificado AFP',
+  certificado_estudios: 'Certificado de estudios',
+}
+
+export default function DocumentReview({ documents, candidateId, candidate }: { documents: any[]; candidateId: string; candidate: any }) {
   const [docs, setDocs] = useState(documents)
   const [loading, setLoading] = useState<string | null>(null)
   const supabase = createClient()
@@ -20,18 +28,38 @@ export default function DocumentReview({ documents, candidateId }: { documents: 
 
   async function updateDoc(docId: string, status: 'APPROVED' | 'REJECTED', reason?: string) {
     setLoading(docId)
+    const doc = docs.find(d => d.id === docId)
     await supabase.from('documents').update({
       status,
       rejection_reason: reason || null,
       reviewed_at: new Date().toISOString(),
     }).eq('id', docId)
 
-    setDocs(d => d.map(doc => doc.id === docId ? { ...doc, status, rejection_reason: reason } : doc))
+    setDocs(d => d.map(d2 => d2.id === docId ? { ...d2, status, rejection_reason: reason } : d2))
     setLoading(null)
 
+    // Notify candidate by email
+    if (doc && candidate?.email) {
+      fetch('/api/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'doc_reviewed',
+          to: candidate.email,
+          data: {
+            candidateName: candidate.full_name,
+            docLabel: DOC_LABELS_ES[doc.document_type] ?? doc.document_type,
+            status,
+            reason: reason || null,
+            token: candidate.invite_token,
+          },
+        }),
+      })
+    }
+
     // Check if all docs approved → update candidate status
-    const updated = docs.map(doc => doc.id === docId ? { ...doc, status } : doc)
-    if (updated.every(d => d.status === 'APPROVED')) {
+    const updated = docs.map(d2 => d2.id === docId ? { ...d2, status } : d2)
+    if (updated.every(d2 => d2.status === 'APPROVED')) {
       await supabase.from('candidates').update({ status: 'READY' }).eq('id', candidateId)
       router.refresh()
     }
