@@ -53,14 +53,14 @@ export async function stampWithFreeTsa(dataHash: string): Promise<{ tsaTimestamp
     const res = await fetch('https://freetsa.org/tsr', {
       method: 'POST',
       headers: { 'Content-Type': 'application/timestamp-query' },
-      body: tsqDer,
+      body: tsqDer as unknown as BodyInit,
       signal: AbortSignal.timeout(10000),
     })
 
     if (!res.ok) return null
 
-    const tsrBytes = Buffer.from(await res.arrayBuffer())
-    const tsaTokenB64 = tsrBytes.toString('base64')
+    const tsrArray = await res.arrayBuffer()
+    const tsaTokenB64 = Buffer.from(tsrArray).toString('base64')
 
     // Extract timestamp from response — use current time as approximation
     // (Proper ASN.1 parsing of TSR is complex; TSA-stamped time is in the token)
