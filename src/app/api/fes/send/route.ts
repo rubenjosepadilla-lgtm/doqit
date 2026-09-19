@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { createHash } from 'crypto'
 import { Resend } from 'resend'
 
@@ -17,16 +16,13 @@ function toSafeHeader(text: string) {
   return text.replace(/[^\x00-\xFF]/g, '?')
 }
 
-async function createServiceClient() {
-  const cookieStore = await cookies()
+function createServiceClient() {
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     {
-      cookies: {
-        getAll() { return cookieStore.getAll() },
-        setAll() {},
-      },
+      auth: { persistSession: false },
+      cookies: { getAll() { return [] }, setAll() {} },
     }
   )
 }
@@ -61,7 +57,7 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     step = 'create_service'
-    const service = await createServiceClient()
+    const service = createServiceClient()
 
     step = 'load_doc'
     const { data: doc, error: docError } = await service

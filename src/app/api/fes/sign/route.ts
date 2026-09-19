@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
 import { createHash } from 'crypto'
 import { Resend } from 'resend'
 import { generateSignedPdf } from '@/lib/fes/generatePdf'
@@ -32,19 +31,18 @@ async function appendEvent(
   return hash
 }
 
-async function getService() {
-  const cookieStore = await cookies()
+function getService() {
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { cookies: { getAll() { return cookieStore.getAll() }, setAll() {} } }
+    { auth: { persistSession: false }, cookies: { getAll() { return [] }, setAll() {} } }
   )
 }
 
 export async function POST(req: Request) {
   const { token, ip, userAgent } = await req.json()
 
-  const service = await getService()
+  const service = getService()
   const { data: doc } = await service
     .from('fes_documents')
     .select('*, candidates(full_name, email), recruiters(email)')
