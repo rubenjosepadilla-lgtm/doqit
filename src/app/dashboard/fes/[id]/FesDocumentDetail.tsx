@@ -1,7 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Send, CheckCircle, Clock, FileText, ExternalLink, Hash } from 'lucide-react'
+import { Send, CheckCircle, Clock, FileText, ExternalLink, Hash, Download, Shield } from 'lucide-react'
 
 const STATUS_LABEL: Record<string, string> = {
   DRAFT: 'Borrador', SENT: 'Enviado', VIEWED: 'Visto',
@@ -121,6 +121,20 @@ export default function FesDocumentDetail({ doc, events, signature }: { doc: any
               <ExternalLink size={15} />
             </a>
           </div>
+        </div>
+      )}
+
+      {/* Signed actions */}
+      {doc.status === 'SIGNED' && (
+        <div className="flex gap-3">
+          <a href={`/api/fes/pdf?id=${doc.id}`}
+            className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50">
+            <Download size={15} /> Descargar PDF firmado
+          </a>
+          <a href={`/verificar/${signature?.manifest_hash}`} target="_blank"
+            className="flex items-center gap-2 bg-white border border-gray-200 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50">
+            <Shield size={15} /> Verificar autenticidad
+          </a>
         </div>
       )}
 
