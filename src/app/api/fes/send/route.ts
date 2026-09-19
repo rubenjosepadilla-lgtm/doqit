@@ -34,9 +34,12 @@ async function appendEvent(
 }
 
 export async function POST(req: Request) {
+  let step = 'init'
   try {
+    step = 'parse_request'
     const { documentId } = await req.json()
 
+    step = 'get_user'
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -46,7 +49,7 @@ export async function POST(req: Request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     )
 
-    // Load document
+    step = 'load_doc'
     const { data: doc, error: docError } = await service
       .from('fes_documents')
       .select('id, title, document_type, content_html, status, invite_token, candidate_id, recruiter_id, candidates(full_name, email)')
@@ -56,12 +59,12 @@ export async function POST(req: Request) {
 
     if (docError) {
       console.error('[FES send] doc error:', docError)
-      return NextResponse.json({ error: docError.message }, { status: 500 })
+      return NextResponse.json({ error: `[load_doc] ${docError.message}` }, { status: 500 })
     }
     if (!doc) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 })
     if (doc.status !== 'DRAFT') return NextResponse.json({ error: 'Ya fue enviado' }, { status: 400 })
 
-    // Get active clause
+    step = 'get_clause'
     const { data: clause } = await service
       .from('fes_clauses')
       .select('id, version')
@@ -69,10 +72,11 @@ export async function POST(req: Request) {
       .contains('document_types', [doc.document_type])
       .single()
 
-    // Freeze content
+    step = 'compute_hash'
     const contentHash = sha256(doc.content_html)
     const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
 
+    step = 'update_doc'
     await service.from('fes_documents').update({
       status: 'SENT',
       content_hash: contentHash,
@@ -81,40 +85,50 @@ export async function POST(req: Request) {
       sent_at: new Date().toISOString(),
     }).eq('id', documentId)
 
+    step = 'append_event'
     await appendEvent(service, documentId, 'document_sent', `recruiter:${user.id}`, {
       content_hash: contentHash,
       expires_at: expiresAt,
     }, null)
 
+    step = 'build_email'
     const candidate = doc.candidates as any
     const signingUrl = `${process.env.NEXT_PUBLIC_APP_URL}/fes/${doc.invite_token}`
     const safeTitle = toSafeHeader(doc.title)
     const safeName = toSafeHeader(candidate?.full_name ?? '')
+    const safeEmail = toSafeHeader(candidate?.email ?? '')
 
-    console.log('[FES send] sending to', candidate?.email, signingUrl)
+    const emailSubject = `Tienes un documento para firmar: ${safeTitle}`
+    const emailHtml = [
+      `<p>Hola ${safeName},</p>`,
+      `<p>Se te ha enviado el siguiente documento para tu firma electronica:</p>`,
+      `<p><strong>${safeTitle}</strong></p>`,
+      `<p>Por favor revisa y firma el documento antes del <strong>${new Date(expiresAt).toLocaleDateString('es-CL')}</strong>.</p>`,
+      `<p><a href="${signingUrl}" style="background:#1d4ed8;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin-top:8px;">Revisar y firmar documento</a></p>`,
+      `<p style="color:#9ca3af;font-size:12px;margin-top:24px;">Doqit - Firma Electronica Simple (Ley 19.799)</p>`,
+    ].join('\n')
 
+    console.log('[FES send] to:', safeEmail, 'subject len:', emailSubject.length)
+    // Log char codes for subject and first 20 chars of html to catch non-latin1
+    const allChars = (emailSubject + emailHtml).split('').map((c, i) => ({ i, v: c.charCodeAt(0) })).filter(x => x.v > 255)
+    if (allChars.length) console.warn('[FES send] non-latin1 chars found:', allChars.slice(0, 5))
+
+    step = 'send_email'
     const { data: emailData, error: emailError } = await resend.emails.send({
       from: 'Doqit <onboarding@resend.dev>',
-      to: candidate.email,
-      subject: `Tienes un documento para firmar: ${safeTitle}`,
-      html: [
-        `<p>Hola ${safeName},</p>`,
-        `<p>Se te ha enviado el siguiente documento para tu firma electronica:</p>`,
-        `<p><strong>${safeTitle}</strong></p>`,
-        `<p>Por favor revisa y firma el documento antes del <strong>${new Date(expiresAt).toLocaleDateString('es-CL')}</strong>.</p>`,
-        `<p><a href="${signingUrl}" style="background:#1d4ed8;color:white;padding:12px 24px;border-radius:8px;text-decoration:none;display:inline-block;margin-top:8px;">Revisar y firmar documento</a></p>`,
-        `<p style="color:#9ca3af;font-size:12px;margin-top:24px;">Doqit - Firma Electronica Simple (Ley 19.799)</p>`,
-      ].join('\n'),
+      to: safeEmail,
+      subject: emailSubject,
+      html: emailHtml,
     })
 
     if (emailError) {
       console.error('[FES send] email error:', emailError)
-      return NextResponse.json({ error: `Email no enviado: ${(emailError as any).message ?? JSON.stringify(emailError)}` }, { status: 500 })
+      return NextResponse.json({ error: `[send_email] ${(emailError as any).message ?? JSON.stringify(emailError)}` }, { status: 500 })
     }
 
     return NextResponse.json({ ok: true, contentHash, signingUrl })
   } catch (e: any) {
-    console.error('[FES send] unhandled error:', e)
-    return NextResponse.json({ error: e.message ?? 'Error interno' }, { status: 500 })
+    console.error(`[FES send] error at step=${step}:`, e)
+    return NextResponse.json({ error: `[${step}] ${e.message ?? 'Error interno'}` }, { status: 500 })
   }
 }
