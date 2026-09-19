@@ -157,7 +157,7 @@ export async function generateSignedPdf(params: {
     { size: 8, color: [0.5, 0.5, 0.5] }
   )
   y -= 6
-  drawText('Verificable en: doqit.vercel.app/verificar · Documento generado por Doqit — doqit.vercel.app', { size: 7.5, color: [0.6, 0.6, 0.6] })
+  drawText('Verificable en: doqit.vercel.app/verificar - Documento generado por Doqit - doqit.vercel.app', { size: 7.5, color: [0.6, 0.6, 0.6] })
 
   return doc.save()
 }

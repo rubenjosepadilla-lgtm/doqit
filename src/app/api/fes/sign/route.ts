@@ -149,7 +149,7 @@ export async function POST(req: Request) {
         ${tsa ? `<p>Sello de tiempo RFC 3161: ${tsa.tsaTimestamp}</p>` : ''}
         <p>Verificar: <a href="${verifyUrl}">${verifyUrl}</a></p>
         <p><a href="${appUrl}/dashboard/fes/${doc.id}" style="background:#1d4ed8;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;display:inline-block;margin-top:8px;">Ver documento</a></p>
-        <p style="color:#9ca3af;font-size:12px;margin-top:24px;">Doqit — Firma Electrónica Simple (Ley 19.799)</p>
+        <p style="color:#9ca3af;font-size:12px;margin-top:24px;">Doqit - Firma Electronica Simple (Ley 19.799)</p>
       `,
     })
   }
@@ -158,18 +158,18 @@ export async function POST(req: Request) {
   await resend.emails.send({
     from: 'Doqit <onboarding@resend.dev>',
     to: candidate.email,
-    subject: `Confirmación de firma: ${doc.title}`,
+    subject: `Confirmacion de firma: ${doc.title}`,
     html: `
       <p>Hola ${candidate.full_name},</p>
-      <p>Tu firma electrónica simple ha sido registrada exitosamente.</p>
+      <p>Tu firma electronica simple ha sido registrada exitosamente.</p>
       <p><strong>${doc.title}</strong></p>
       <p>Fecha y hora: ${new Date(now).toLocaleString('es-CL')}</p>
       ${tsa ? `<p>Sello de tiempo RFC 3161 aplicado (FreeTSA).</p>` : ''}
       <p>Puedes verificar la autenticidad de este documento en:<br>
         <a href="${verifyUrl}">${verifyUrl}</a>
       </p>
-      <p style="color:#6b7280;font-size:13px;">Válido según Ley 19.799 de la República de Chile.</p>
-      <p style="color:#9ca3af;font-size:12px;margin-top:24px;">Doqit — Firma Electrónica Simple</p>
+      <p style="color:#6b7280;font-size:13px;">Valido segun Ley 19.799 de la Republica de Chile.</p>
+      <p style="color:#9ca3af;font-size:12px;margin-top:24px;">Doqit - Firma Electronica Simple</p>
     `,
   })
 

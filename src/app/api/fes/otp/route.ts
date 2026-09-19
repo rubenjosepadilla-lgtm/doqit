@@ -105,7 +105,7 @@ export async function POST(req: Request) {
         <p>Tu código de verificación para firmar el documento <strong>${doc.title}</strong> es:</p>
         <p style="font-size:36px;font-weight:bold;letter-spacing:8px;color:#1d4ed8;margin:24px 0">${otp}</p>
         <p style="color:#6b7280;font-size:14px;">Este código es válido por 10 minutos.</p>
-        <p style="color:#9ca3af;font-size:12px;margin-top:24px;">Doqit — Firma Electrónica Simple (Ley 19.799)</p>
+        <p style="color:#9ca3af;font-size:12px;margin-top:24px;">Doqit - Firma Electronica Simple (Ley 19.799)</p>
       `,
     })
 
