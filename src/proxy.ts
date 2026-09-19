@@ -25,7 +25,7 @@ export async function proxy(request: NextRequest) {
 
   const isAuth = !!user
   const path = request.nextUrl.pathname
-  const isPublic = path.startsWith('/login') || path.startsWith('/register') || path.startsWith('/invite') || path === '/' || path.startsWith('/recuperar-contrasena') || path.startsWith('/forgot-password') || path.startsWith('/reset-password') || path.startsWith('/auth')
+  const isPublic = path.startsWith('/login') || path.startsWith('/register') || path.startsWith('/invite') || path === '/' || path.startsWith('/recuperar-contrasena') || path.startsWith('/forgot-password') || path.startsWith('/reset-password') || path.startsWith('/auth') || path.startsWith('/fes')
 
   if (!isAuth && !isPublic) {
     return NextResponse.redirect(new URL('/login', request.url))

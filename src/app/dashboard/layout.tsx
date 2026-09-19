@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { LogOut, Users, LayoutDashboard, Briefcase } from 'lucide-react'
+import { LogOut, Users, LayoutDashboard, Briefcase, PenLine } from 'lucide-react'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
@@ -23,6 +23,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             { href: '/dashboard', icon: LayoutDashboard, label: 'Inicio' },
             { href: '/dashboard/candidates', icon: Users, label: 'Candidatos' },
             { href: '/dashboard/positions', icon: Briefcase, label: 'Posiciones' },
+            { href: '/dashboard/fes', icon: PenLine, label: 'Firma Electrónica' },
           ].map(({ href, icon: Icon, label }) => (
             <Link key={href} href={href} className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900">
               <Icon size={16} />
