@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createServerClient } from '@supabase/ssr'
 import { createHash } from 'crypto'
 import { Resend } from 'resend'
+import * as https from 'node:https'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,19 +16,45 @@ function toSafeHeader(text: string) {
   return text.replace(/[^\x00-\xFF]/g, '?')
 }
 
-function createServiceClient() {
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: { persistSession: false },
-      cookies: { getAll() { return [] }, setAll() {} },
+// Use node:https directly to avoid Next.js fetch instrumentation ByteString issues
+function supabaseRequest(path: string, method: string, body?: object): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY!
+    const parsed = new URL(path, baseUrl)
+
+    const bodyStr = body ? JSON.stringify(body) : undefined
+    const headers: Record<string, string> = {
+      'apikey': key,
+      'Authorization': `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'Prefer': method === 'POST' ? 'return=representation' : 'return=minimal',
     }
-  )
+    if (bodyStr) headers['Content-Length'] = Buffer.byteLength(bodyStr).toString()
+
+    const options: https.RequestOptions = {
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
+      method,
+      headers,
+    }
+
+    const nodeReq = https.request(options, (res) => {
+      const chunks: Buffer[] = []
+      res.on('data', (c: Buffer) => chunks.push(c))
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8')
+        try { resolve(text ? JSON.parse(text) : null) } catch { resolve(text) }
+      })
+    })
+    nodeReq.on('error', reject)
+    if (bodyStr) nodeReq.write(bodyStr)
+    nodeReq.end()
+  })
 }
 
 async function appendEvent(
-  service: any,
   documentId: string,
   eventType: string,
   actor: string,
@@ -38,7 +64,7 @@ async function appendEvent(
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
   const hash = sha256(`${id}${eventType}${JSON.stringify(eventData)}${prevHash ?? ''}${now}`)
-  await service.from('fes_events').insert({
+  await supabaseRequest('/rest/v1/fes_events', 'POST', {
     id, document_id: documentId, event_type: eventType,
     actor, event_data: eventData, prev_event_hash: prevHash, event_hash: hash, created_at: now,
   })
@@ -56,55 +82,47 @@ export async function POST(req: Request) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    step = 'create_service'
-    const service = createServiceClient()
-
     step = 'load_doc'
-    const { data: doc, error: docError } = await service
-      .from('fes_documents')
-      .select('id, title, document_type, content_html, status, invite_token, candidate_id, recruiter_id, candidates(full_name, email)')
-      .eq('id', documentId)
-      .eq('recruiter_id', user.id)
-      .single()
+    const docUrl = `/rest/v1/fes_documents?select=id,title,document_type,content_html,status,invite_token,candidate_id,recruiter_id,candidates(full_name,email)&id=eq.${documentId}&recruiter_id=eq.${user.id}`
+    const doc = await supabaseRequest(docUrl, 'GET')
 
-    if (docError) {
-      console.error('[FES send] doc error:', docError)
-      return NextResponse.json({ error: `[load_doc] ${docError.message}` }, { status: 500 })
+    if (!doc || doc.code) {
+      return NextResponse.json({ error: `[load_doc] ${doc?.message ?? 'No encontrado'}` }, { status: 500 })
     }
-    if (!doc) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 })
-    if (doc.status !== 'DRAFT') return NextResponse.json({ error: 'Ya fue enviado' }, { status: 400 })
+    // PostgREST returns array; we need single row
+    const docRow = Array.isArray(doc) ? doc[0] : doc
+    if (!docRow) return NextResponse.json({ error: 'Documento no encontrado' }, { status: 404 })
+    if (docRow.status !== 'DRAFT') return NextResponse.json({ error: 'Ya fue enviado' }, { status: 400 })
 
     step = 'get_clause'
-    const { data: clause } = await service
-      .from('fes_clauses')
-      .select('id, version')
-      .eq('active', true)
-      .contains('document_types', [doc.document_type])
-      .single()
+    const clauseUrl = `/rest/v1/fes_clauses?select=id,version&active=eq.true&document_types=cs.%5B"${docRow.document_type}"%5D&limit=1`
+    const clauseRes = await supabaseRequest(clauseUrl, 'GET')
+    const clause = Array.isArray(clauseRes) ? clauseRes[0] : clauseRes
 
     step = 'compute_hash'
-    const contentHash = sha256(doc.content_html)
+    const contentHash = sha256(docRow.content_html)
     const expiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()
 
     step = 'update_doc'
-    await service.from('fes_documents').update({
+    const updateUrl = `/rest/v1/fes_documents?id=eq.${documentId}`
+    await supabaseRequest(updateUrl, 'PATCH', {
       status: 'SENT',
       content_hash: contentHash,
       clause_id: clause?.id ?? null,
       expires_at: expiresAt,
       sent_at: new Date().toISOString(),
-    }).eq('id', documentId)
+    })
 
     step = 'append_event'
-    await appendEvent(service, documentId, 'document_sent', `recruiter:${user.id}`, {
+    await appendEvent(documentId, 'document_sent', `recruiter:${user.id}`, {
       content_hash: contentHash,
       expires_at: expiresAt,
     }, null)
 
     step = 'build_email'
-    const candidate = doc.candidates as any
-    const signingUrl = `${process.env.NEXT_PUBLIC_APP_URL}/fes/${doc.invite_token}`
-    const safeTitle = toSafeHeader(doc.title)
+    const candidate = docRow.candidates as any
+    const signingUrl = `${process.env.NEXT_PUBLIC_APP_URL}/fes/${docRow.invite_token}`
+    const safeTitle = toSafeHeader(docRow.title)
     const safeName = toSafeHeader(candidate?.full_name ?? '')
     const safeEmail = toSafeHeader(candidate?.email ?? '')
 
